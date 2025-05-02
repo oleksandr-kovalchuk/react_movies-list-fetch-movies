@@ -1,4 +1,4 @@
-import React, { FormEvent, useState } from 'react';
+import React, { FormEvent, useState, useCallback } from 'react';
 import classNames from 'classnames';
 import { MovieCard } from '../MovieCard';
 import { getMovie } from '../../api';
@@ -6,41 +6,49 @@ import { Movie } from '../../types/Movie';
 import { MovieData } from '../../types/MovieData';
 import './FindMovie.scss';
 
-type Props = {
-  movies: Movie[];
-  addMovie: (movies: Movie[]) => void;
+const PLACEHOLDER_IMAGE =
+  'https://via.placeholder.com/360x270.png?text=no%20preview';
+
+type FindMovieProps = {
+  onAddMovie: (movie: Movie) => void;
 };
 
-export const FindMovie: React.FC<Props> = ({ movies, addMovie }) => {
+export const FindMovie: React.FC<FindMovieProps> = ({ onAddMovie }) => {
   const [query, setQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [movieData, setMovieData] = useState<Movie | null>(null);
+  const [previewMovie, setPreviewMovie] = useState<Movie | null>(null);
   const [hasError, setHasError] = useState(false);
 
-  const setMovieDataFromApi = (data: MovieData) => {
+  const convertMovieData = useCallback((data: MovieData): Movie => {
     const hasValidPoster = data.Poster && data.Poster !== 'N/A';
-    const imgUrl = hasValidPoster
-      ? data.Poster
-      : 'https://via.placeholder.com/360x270.png?text=no%20preview';
+    const imgUrl = hasValidPoster ? data.Poster : PLACEHOLDER_IMAGE;
 
-    setMovieData({
+    return {
       title: data.Title,
       description: data.Plot,
       imgUrl,
       imdbId: data.imdbID,
       imdbUrl: `https://www.imdb.com/title/${data.imdbID}`,
-    });
-  };
+    };
+  }, []);
 
-  const handleError = () => {
+  const resetForm = useCallback(() => {
+    setQuery('');
+    setPreviewMovie(null);
+    setHasError(false);
+  }, []);
+
+  const handleError = useCallback(() => {
     setHasError(true);
-    setMovieData(null);
-  };
+    setPreviewMovie(null);
+  }, []);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!query.trim()) {
+    const trimmedQuery = query.trim();
+
+    if (!trimmedQuery) {
       return;
     }
 
@@ -48,15 +56,15 @@ export const FindMovie: React.FC<Props> = ({ movies, addMovie }) => {
     setHasError(false);
 
     try {
-      const data = await getMovie(query.trim());
+      const data = await getMovie(trimmedQuery);
 
-      if (!('Title' in data && 'Plot' in data && 'imdbID' in data)) {
+      if (!data || !('Title' in data && 'Plot' in data && 'imdbID' in data)) {
         handleError();
 
         return;
       }
 
-      setMovieDataFromApi(data);
+      setPreviewMovie(convertMovieData(data));
     } catch (error) {
       handleError();
     } finally {
@@ -65,35 +73,32 @@ export const FindMovie: React.FC<Props> = ({ movies, addMovie }) => {
   };
 
   const handleAdd = () => {
-    if (!movieData) {
+    if (!previewMovie) {
       return;
     }
 
-    const isNewMovie = !movies.some(movie => movie.imdbId === movieData.imdbId);
-
-    if (isNewMovie) {
-      addMovie([...movies, movieData]);
-    }
-
-    setMovieData(null);
-    setHasError(false);
-    setQuery('');
+    onAddMovie(previewMovie);
+    resetForm();
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setQuery(e.target.value);
+
     if (hasError) {
       setHasError(false);
     }
   };
 
+  const isSearchDisabled = !query.trim() || isLoading;
+
   return (
-    <>
+    <div className="find-movie-container">
       <form className="find-movie" onSubmit={handleSubmit}>
         <div className="field">
           <label className="label" htmlFor="movie-title">
             Movie title
           </label>
+
           <div className="control">
             <input
               data-cy="titleField"
@@ -105,9 +110,10 @@ export const FindMovie: React.FC<Props> = ({ movies, addMovie }) => {
               onChange={handleInputChange}
             />
           </div>
+
           {hasError && (
             <p className="help is-danger" data-cy="errorMessage">
-              Can&apos;t find a movie with such a title
+              Can not find a movie with such a title
             </p>
           )}
         </div>
@@ -120,13 +126,13 @@ export const FindMovie: React.FC<Props> = ({ movies, addMovie }) => {
               className={classNames('button is-light', {
                 'is-loading': isLoading,
               })}
-              disabled={!query.trim()}
+              disabled={isSearchDisabled}
             >
               Find a movie
             </button>
           </div>
 
-          {movieData && (
+          {previewMovie && (
             <div className="control">
               <button
                 data-cy="addButton"
@@ -141,12 +147,13 @@ export const FindMovie: React.FC<Props> = ({ movies, addMovie }) => {
         </div>
       </form>
 
-      {movieData && (
-        <div className="container" data-cy="previewContainer">
+      {previewMovie && (
+        <div className="preview-container" data-cy="previewContainer">
           <h2 className="title">Preview</h2>
-          <MovieCard movie={movieData} />
+
+          <MovieCard movie={previewMovie} />
         </div>
       )}
-    </>
+    </div>
   );
 };
